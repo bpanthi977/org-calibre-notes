@@ -148,6 +148,7 @@ FILE is the source ebook file."
               :keymap counsel-find-file-map
               :caller 'org-calibre-notes)))
 
+;;;###autoload
 (defun org-calibre-notes-save ()
   "Save calibre notes (exported as json to clipboard) into a org file."
   (interactive)
