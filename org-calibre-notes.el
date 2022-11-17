@@ -6,7 +6,7 @@
 ;; Maintainer: Bibek Panthi <bpanthi977@gmail.com>
 ;; URL: https://github.com/bpanthi977/org-calibre-notes
 ;; Version: 0.0.1
-;; Package-Requires: ((counsel "0.13.4") (emacs "27.1"))
+;; Package-Requires: ((emacs "27.1"))
 ;; Kewords: epub, calibre, org
 
 ;; This file in not part of GNU Emacs
@@ -30,8 +30,7 @@
 
 ;;; Code:
 (require 'cl-lib)
-(require 'counsel)
-
+(require 'dired)
 (cl-defun org-calibre-notes-assort (seq &key (key #'identity) (test #'eql) (start 0) end)
   "Return SEQ assorted by KEY.
 
@@ -74,45 +73,41 @@ From Serapeum Library (Common Lisp)"
                   (nreverse (cdr group)))
                 (nreverse groups))))
 
-
-(defun org-calibre-notes-parse-and-insert (json-string file)
-  "Parse json `JSON-STRING' exported from calibre and insert into org FILE."
+(defun org-calibre-notes-parse-and-insert (json file)
+  "Parse JSON exported from calibre and insert into org FILE."
   (cl-flet ((note-headings (highlight)
                         (gethash "toc_family_titles" highlight)))
-    (let ((json (ignore-errors (json-parse-string json-string))))
-      (if (null json)
-          (message "invalid json string")
-        (let ((notes-group (org-calibre-notes-assort (gethash "highlights" json) :key #'note-headings
-                                   :test #'cl-equalp)))
-          (cl-flet ((print-heading (note heading extra-level)
-                                   (when (> (length heading) 0)
-                                     (cl-loop for title across heading
-                                              for i from (1+ extra-level) do
-                                              (insert (format "%s %s\n" (make-string i ?*) title))
-                                              (when file
-                                                (insert (format "[[nov:%s::%d:0][link]]\n"
-                                                                file
-                                                                (1+ (gethash "spine_index" note))))))))
-                    (print-note (note)
-                                (insert (format "%s\n\n" (gethash "highlighted_text" note)))))
-            (let ((prev-heading nil))
-              (cl-loop for notes in notes-group
-                       for heading = (note-headings (cl-first notes)) do
-                       (unless (cl-equalp heading prev-heading)
-                         (let ((max-match-length (cl-loop for a across prev-heading
-                                                          for b across heading
-                                                          for i from 0
-                                                          unless (cl-equalp a b)
-                                                          return i
-                                                          finally (return i))))
-                           (if (= max-match-length 0)
-                               ;; completely new heading
-                               (print-heading (elt notes 0) heading 0)
-                             ;; subset of previous heading
-                             (print-heading (elt notes 0) (cl-subseq heading max-match-length) max-match-length))
-                           (setf prev-heading heading)))
-                       (cl-loop for note in notes
-                                do (print-note note))))))))))
+    (let ((notes-group (org-calibre-notes-assort (gethash "highlights" json) :key #'note-headings
+                                                 :test #'cl-equalp)))
+      (cl-flet ((print-heading (note heading extra-level)
+                               (when (> (length heading) 0)
+                                 (cl-loop for title across heading
+                                          for i from (1+ extra-level) do
+                                          (insert (format "%s %s\n" (make-string i ?*) title))
+                                          (when file
+                                            (insert (format "[[nov:%s::%d:0][link]]\n"
+                                                            file
+                                                            (1+ (gethash "spine_index" note))))))))
+                (print-note (note)
+                            (insert (format "%s\n\n" (gethash "highlighted_text" note)))))
+        (let ((prev-heading nil))
+          (cl-loop for notes in notes-group
+                   for heading = (note-headings (cl-first notes)) do
+                   (unless (cl-equalp heading prev-heading)
+                     (let ((max-match-length (cl-loop for a across prev-heading
+                                                      for b across heading
+                                                      for i from 0
+                                                      unless (cl-equalp a b)
+                                                      return i
+                                                      finally (return i))))
+                       (if (= max-match-length 0)
+                           ;; completely new heading
+                           (print-heading (elt notes 0) heading 0)
+                         ;; subset of previous heading
+                         (print-heading (elt notes 0) (cl-subseq heading max-match-length) max-match-length))
+                       (setf prev-heading heading)))
+                   (cl-loop for note in notes
+                            do (print-note note))))))))
 
 (defun org-calibre-notes-select-ebook-file ()
   "Present user with an interface to select the ebook file."
@@ -120,15 +115,7 @@ From Serapeum Library (Common Lisp)"
           (if (eq major-mode 'dired-mode)
               (dired-current-directory)
             "~/Documents/")))
-    (let ((ivy-sort-functions-alist '((read-file-name-internal . file-newer-than-file-p))))
-      (ivy-read "EPub File: " #'read-file-name-internal
-                :matcher #'counsel--find-file-matcher
-                :preselect (counsel--preselect-file)
-                :require-match 'confirm-after-completion
-                :sort t
-                :history 'file-name-history
-                :keymap counsel-find-file-map
-                :caller 'org-calibre-notes))))
+      (read-file-name "EPub File: " default-directory nil nil nil nil)))
 
 (defun org-calibre-notes-select-save-file (file)
   "Present user with an interface to select the org file in which to save notes.
@@ -139,28 +126,22 @@ FILE is the source ebook file."
                 ((eq major-mode 'dired-mode)
                  (dired-current-directory))
                 (t "~/org/"))))
-    (ivy-read "Save to: " #'read-file-name-internal
-              :initial-input (concat (file-name-base file) ".org")
-              :matcher #'counsel--find-file-matcher
-              :preselect (counsel--preselect-file)
-              :require-match 'confirm-after-completion
-              :history 'file-name-history
-              :keymap counsel-find-file-map
-              :caller 'org-calibre-notes)))
+    (read-file-name "Save to: " default-directory nil nil
+                    (concat (file-name-base file) ".org") nil)))
 
 ;;;###autoload
 (defun org-calibre-notes-save ()
   "Save calibre notes (exported as json to clipboard) into a org file."
   (interactive)
-  (let ((parsed-json (ignore-errors (json-parse-string (current-kill 0)))))
-    (unless parsed-json
-      (message "invalid json. Open ebook in calibre reader then: Export-> Format = calibre highlights -> Copy to Clipboard"))
-    (when parsed-json
-      (let* ((source (org-calibre-notes-select-ebook-file))
+  (when-let ((parsed-json (condition-case err
+                              (json-parse-string (current-kill 0))
+                            (declare (ignore err))
+                            (json-parse-error (user-error "Invalid JSON.
+Open ebook in calibre reader then: Export-> Format = calibre highlights -> Copy to Clipboard"))))
+             (source (org-calibre-notes-select-ebook-file))
              (savefile (org-calibre-notes-select-save-file source)))
-        (when savefile
-          (find-file savefile)
-          (org-calibre-notes-parse-and-insert parsed-json source))))))
+    (find-file savefile)
+    (org-calibre-notes-parse-and-insert parsed-json source)))
 
 (provide 'org-calibre-notes)
 ;;; org-calibre-notes.el ends here
