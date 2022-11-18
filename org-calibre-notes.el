@@ -36,13 +36,13 @@
 
      (assort (iota 10)
              :key (lambda (n) (mod n 3)))
-     => '((0 3 6 9) (1 4 7) (2 5 8))
+     => \\='((0 3 6 9) (1 4 7) (2 5 8))
 
 Groups are ordered as encountered.  This property means you could, in
 principle, use `assort' to implement `remove-duplicates' by taking the
 first element of each group:
 
-     (mapcar #'first (assort list))
+     (mapcar #\\='first (assort list))
      ≡ (remove-duplicates list :from-end t)
 
 However, if TEST is ambiguous (a partial order), and an element could
@@ -51,7 +51,8 @@ that it will end up in the leftmost group that it could be a member
 of.
 
 START and END specify which portion of SEQ should be assorted.
-From Serapeum Library (Common Lisp)"
+
+Taken from Serapeum Library (Common Lisp)"
   (let ((groups nil)
         last-group)
     (cl-map 'nil (lambda (item)
